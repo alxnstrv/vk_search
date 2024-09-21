@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поиск по ВКонтакте</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .post {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 25px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .image-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .image-row img {
+            max-width: calc(33% - 10px); /* Три изображения в ряд */
+            height: auto;
+            cursor: pointer;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            padding-top: 60px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+        .modal-content {
+            margin: auto;
+            display: block;
+            max-width: 80%;
+            height: auto;
+        }
+        .modal-content img {
+            width: 100%;
+            height: auto;
+        }
+        .close {
+            position: absolute;
+            top: 20px;
+            right: 35px;
+            color: #fff;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .post-text {
+            display: none;
+        }
+        .read-more-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 10px;
+            display: inline-block;
+        }
+        .read-more-btn:hover {
+            background-color: #0056b3;
+        }
+        /* Стили для поиска и кнопки */
+        .search-container {
+            margin-bottom: 30px;
+        }
+        .input-group .form-control {
+            border-radius: 50px;
+        }
+        .input-group .btn {
+            border-radius: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="search-container">
+            <h1 class="text-center">Поиск по ВКонтакте</h1>
+
+            <form id="search-form" class="input-group mb-3">
+                <input type="text" id="query" class="form-control" placeholder="Введите запрос для поиска" aria-label="Search query">
+                <button class="btn btn-primary" type="submit">Искать</button>
+            </form>
+
+            <div class="input-group mb-3">
+                <label class="input-group-text" for="sortOrder">Сортировка по дате:</label>
+                <select class="form-select" id="sortOrder">
+                    <option value="none" selected>Без сортировки</option>
+                    <option value="desc">Сначала новые</option>
+                    <option value="asc">Сначала старые</option>
+                </select>
+            </div>
+
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для изображений -->
+    <div id="imageModal" class="modal">
+        <span class="close">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
+    <script>
+        const form = document.getElementById('search-form');
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            const query = document.getElementById('query').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+
+            fetch(`/search?q=${encodeURIComponent(query)}&sort=${sortOrder}`)
+                .then(response => response.json())
+                .then(data => {
+                    const resultsDiv = document.getElementById('results');
+                    resultsDiv.innerHTML = '';
+
+                    let posts = data.response.items;
+
+                    if (sortOrder === 'asc') {
+                        posts = posts.sort((a, b) => a.date - b.date);
+                    } else if (sortOrder === 'desc') {
+                        posts = posts.sort((a, b) => b.date - a.date);
+                    }
+
+                    const postsPerPage = 10;
+                    let currentPage = 1;
+
+                    function showPage(page) {
+                        resultsDiv.innerHTML = '';
+                        const start = (page - 1) * postsPerPage;
+                        const end = start + postsPerPage;
+                        const paginatedPosts = posts.slice(start, end);
+
+                        paginatedPosts.forEach(post => {
+                            const postDiv = document.createElement('div');
+                            postDiv.classList.add('post');
+
+                            const date = new Date(post.date * 1000).toLocaleString();
+                            const link = `https://vk.com/wall${post.owner_id}_${post.id}`;
+                            const text = post.text || 'Нет текста';
+
+                            let images = [];
+                            if (post.attachments) {
+                                post.attachments.forEach(attachment => {
+                                    if (attachment.type === 'photo') {
+                                        const largestImage = attachment.photo.sizes[attachment.photo.sizes.length - 1].url;
+                                        images.push(largestImage);
+                                    }
+                                });
+                            }
+
+                            const truncatedText = text.length > 100 ? text.substring(0, 100) + '...' : text;
+
+                            postDiv.innerHTML = `
+                                <strong>Дата публикации:</strong> ${date}<br>
+                                <strong>Ссылка на пост:</strong> <a href="${link}" target="_blank">${link}</a><br>
+                                <strong>Текст:</strong> <span class="post-preview">${truncatedText}</span>
+                                <span class="post-text">${text}</span><br>
+                                <div class="image-row">
+                                    ${images.length > 0 ? images.map(image => `<img src="${image}" alt="Photo" onclick="openModal('${image}')">`).join('') : ''}
+                                </div>
+                                <button class="read-more-btn">Читать далее</button>
+                            `;
+
+                            resultsDiv.appendChild(postDiv);
+
+                            const readMoreBtn = postDiv.querySelector('.read-more-btn');
+                            const postText = postDiv.querySelector('.post-text');
+                            const postPreview = postDiv.querySelector('.post-preview');
+                            const imageRow = postDiv.querySelector('.image-row');
+
+                            postText.style.display = 'none';
+                            imageRow.style.display = 'none';
+
+                            readMoreBtn.addEventListener('click', () => {
+                                const isExpanded = postText.style.display === 'inline';
+                                postPreview.style.display = isExpanded ? 'inline' : 'none';
+                                postText.style.display = isExpanded ? 'none' : 'inline';
+                                imageRow.style.display = isExpanded ? 'none' : 'flex';
+                                readMoreBtn.textContent = isExpanded ? 'Читать далее' : 'Скрыть';
+                            });
+                        });
+
+                        const paginationDiv = document.createElement('div');
+                        paginationDiv.classList.add('pagination');
+                        paginationDiv.innerHTML = '';
+
+                        const totalPages = Math.ceil(posts.length / postsPerPage);
+
+                        for (let i = 1; i <= totalPages; i++) {
+                            const pageLink = document.createElement('button');
+                            pageLink.textContent = i;
+                            pageLink.classList.add('btn', 'btn-link');
+                            if (i === currentPage) {
+                                pageLink.classList.add('active');
+                            }
+
+                            pageLink.addEventListener('click', () => {
+                                currentPage = i;
+                                showPage(i);
+                            });
+
+                            paginationDiv.appendChild(pageLink);
+                        }
+                        resultsDiv.appendChild(paginationDiv);
+                    }
+
+                    showPage(currentPage);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        });
+
+        function openModal(imageSrc) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            modal.style.display = 'block';
+            modalImg.src = imageSrc;
+        }
+
+        document.querySelector('.close').onclick = function() {
+            document.getElementById('imageModal').style.display = 'none';
+        };
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('imageModal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+    </script>
+</body>
+</html>
